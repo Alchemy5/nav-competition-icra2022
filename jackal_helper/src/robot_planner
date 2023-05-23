@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+
+import rospy
+from geometry_msgs.msg import Twist
+from sensor_msgs.msg import LaserScan
+import numpy as np
+import pickle
+import math
+"""
+Global linear and angular velocity values
+"""
+V=0.0
+W=0.0
+
+def hard_coded_score_function(y):
+    """
+    Hard coded score function based approach, alternative to standard svm-based approach
+    """
+    size = len(y)
+    v_ascending_array = list(np.linspace(0,1,num=size//2, endpoint=True))
+    v_descending_array = list(np.linspace(1,0, num=size//2, endpoint=True))
+    v_weights = v_ascending_array + v_descending_array
+    v_bar = np.dot(v_weights, y)
+    w_ascending_array = list(np.linspace(0,-1,num=size//2, endpoint=True))
+    w_descending_array = list(np.linspace(1,0,num=size//2, endpoint=True))
+    w_weights = w_ascending_array + w_descending_array
+    w_bar = np.dot(w_weights, y)
+    return v_bar, w_bar
+
+def svm_score_function(data):
+    """
+    Standard SVM-based reactive approach to navigation
+    """
+    data = np.array(data[40:680]) # compression to fit SVM
+    data = np.array([data for _ in range(480)]) # repetition of vector in y direction
+    with open('models/svc1.pickle', 'rb') as file: # TODO switch to absolute path if getting svm not found error
+        svm = pickle.load(file)
+    alpha = 0.00005 # hyperparameters
+    beta = 1
+    gamma = 0.125
+    F = svm.decision_function(data.reshape(1,-1))[0]
+    v = beta * math.exp(-alpha * F**2) # control function implementation
+    w = gamma * F
+    return v, w
+
+def callback(data):
+    global V, W
+    data = list(data.ranges)
+    filtered_data = []
+    for el in data:
+        if str(el) == "inf":
+            filtered_data.append(20.0)
+        else:
+            filtered_data.append(float(round(el, 3)))
+
+    V, W = svm_score_function(filtered_data) # alternative: hard_coded_score_function
+    
+def custom_planning_node():
+    """
+    ROS node launched from custom nav launch file
+    """
+    rospy.init_node('planner', anonymous=True)
+    rospy.Subscriber('front/scan', LaserScan, callback) # subscribes to LaserScan topic
+    pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10) # publishes to cmd_vel topic
+    rate=rospy.Rate(1)
+    while not rospy.is_shutdown():
+        vel_msg=Twist()
+        print(f"Forward velocity: {V}, Angular velocity: {W}")
+        vel_msg.linear.x = V
+        vel_msg.angular.z = W
+        pub.publish(vel_msg)
+        rate.sleep()
+
+if __name__ == '__main__':
+    try:
+        custom_planning_node()
+    except rospy.ROSInterruptException:
+        pass

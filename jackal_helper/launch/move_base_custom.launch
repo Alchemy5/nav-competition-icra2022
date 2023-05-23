@@ -1,0 +1,7 @@
+<launch>
+  <!-- Start the navigation stack -->
+  <!-- Update just need to create base local planner make it similar to base local planner/trajectory planner ros-->
+  <node pkg="jackal_helper" type="robot_planner" respawn="false" name="robot_planner" output="screen">
+    <remap from="odom" to="odometry/filtered" />
+  </node>
+</launch>
